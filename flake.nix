@@ -3,15 +3,26 @@
 
   inputs = { nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable"; };
 
-  outputs = inputs:
+  outputs = { self, nixpkgs }:
     let
       supportedSystems =
         [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
       forEachSupportedSystem = f:
-        inputs.nixpkgs.lib.genAttrs supportedSystems
-        (system: f { pkgs = import inputs.nixpkgs { inherit system; }; });
-      setec = pkgs:
-        pkgs.buildGoModule (finalAttrs: {
+        nixpkgs.lib.genAttrs supportedSystems (system:
+          let
+            overlay = final: prev: { setec = self.packages.${system}.setec; };
+
+            pkgs_old = import nixpkgs { inherit system; };
+
+            pkgs = nixpkgs.legacyPackages.${system}.extend overlay;
+
+          in f { pkgs = pkgs; });
+
+    in {
+      nixosModules = { setec = import ./setec-module.nix; };
+
+      packages = forEachSupportedSystem ({ pkgs }: {
+        setec = pkgs.buildGoModule (finalAttrs: {
           pname = "setec";
           version = "0.0.0";
 
@@ -33,10 +44,32 @@
             maintainers = with pkgs.lib.maintainers; [ Munksgaard ];
           };
         });
-    in {
-      packages = forEachSupportedSystem ({ pkgs }: {
-        setec = setec pkgs;
-        default = setec pkgs;
+      });
+
+      checks = forEachSupportedSystem ({ pkgs }: {
+        setecNixosTest = pkgs.nixosTest {
+          name = "setec-boots";
+          nodes.machine = { config, pkgs, ... }: {
+            imports = [ self.nixosModules.setec ];
+            services.setec = {
+              enable = true;
+              hostname = "setec-test";
+              tsAuthkey = "tskey-auth-kWtZirNjtG11CNTRL-c8bhZWr4xoRr9pVeTVafoRciHkejBwm4";
+            };
+
+            system.stateVersion = "25.11";
+          };
+
+          testScript = ''
+            machine.wait_for_unit("setec.service")
+
+            def wait_for_systemctl_status_msg(_last_try):
+              (_status, output) = machine.systemctl("status setec")
+              return "AuthLoop: state is Running; done" in output
+
+            retry(wait_for_systemctl_status_msg)
+          '';
+        };
       });
     };
 }
