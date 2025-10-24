@@ -1,16 +1,44 @@
-{ config, lib, pkgs, ... }:
-with lib;
-let cfg = config.services.setec;
-in {
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
+
+# in order to use this, create a file out-of-band at /var/lib/setec/settings.env that contains the variables required
+# for authenticating against AWS KMS and Tailscale.
+#
+# Example:
+# 
+# AWS_ACCESS_KEY_ID=AKIATI.....
+# AWS_SECRET_ACCESS_KEY=18UuL12k.....
+# TS_AUTHKEY=tskey-auth-kB1o.....
+
+let
+  cfg = config.services.setec;
+
+  inherit (lib)
+    mkEnableOption
+    mkPackageOption
+    mkOption
+    literalExpression
+    types
+    mkIf
+    ;
+
+  homeDir = "/var/lib/setec";
+
+in
+{
   options.services.setec = {
     enable = mkEnableOption "a setec server";
 
     package = mkPackageOption pkgs "setec" { };
 
-    tsAuthkey = mkOption {
-      type = types.str;
-      example = literalExpression
-        "tskey-auth-kf4k3k3y4testCNTRL-ZmFrZSBrZXkgZm9yIHRlc3Q";
+    openFirewall = lib.mkOption {
+      description = "Open firewall";
+      type = lib.types.bool;
+      default = true;
     };
 
     hostname = mkOption {
@@ -31,8 +59,7 @@ in {
 
     kmsKeyName = mkOption {
       type = types.nullOr types.str;
-      example = literalExpression
-        "arn:aws:kms:us-east-1:123456789012:key/b8074b63-13c0-4345-a9d8-e236267d2af1";
+      example = literalExpression "arn:aws:kms:us-east-1:123456789012:key/b8074b63-13c0-4345-a9d8-e236267d2af1";
     };
 
     backupBucket = mkOption {
@@ -56,60 +83,57 @@ in {
   };
 
   config = mkIf cfg.enable {
+    networking.firewall.allowedTCPPorts = lib.mkIf cfg.openFirewall [ 443 ];
 
-    users.users.hello = {
+    users.users.setec = {
       createHome = true;
-      description = "helloNixosTests user";
+      description = "setec";
       isSystemUser = true;
-      group = "hello";
-      home = "/srv/helloNixosTests";
+      group = "setec";
+      home = homeDir;
     };
 
-    users.groups.hello.gid = 1000;
+    users.groups.setec = { };
 
     systemd.services.setec = {
       description = "Setec server";
       wantedBy = [ "multi-user.target" ];
       after = [ "network.target" ];
-      # after = lib.mkIf (config.networking.networkmanager.enable) [ "NetworkManager-wait-online.service" ];
 
-      path = [
-        (builtins.dirOf
-          config.security.wrapperDir) # for `su` to use taildrive with correct access rights
-        pkgs.procps # for collecting running services (opt-in feature)
-        pkgs.getent # for `getent` to look up user shells
-        pkgs.kmod # required to pass tailscale's v6nat check
-      ] ++ lib.optional config.networking.resolvconf.enable
-        config.networking.resolvconf.package;
+      path = map lib.getBin (
+        [
+          (builtins.dirOf config.security.wrapperDir) # for `su` to use taildrive with correct access rights
+          pkgs.procps # for collecting running services (opt-in feature)
+          pkgs.getent # for `getent` to look up user shells
+          pkgs.kmod # required to pass tailscale's v6nat check
+        ]
+        ++ lib.optionals config.networking.resolvconf.enable [ config.networking.resolvconf.package ]
+      );
 
       requires = [ "network-online.target" ];
 
       environment = {
-        TS_AUTHKEY = cfg.tsAuthkey;
         TSNET_FORCE_LOGIN = "1";
       };
 
-      # script = ''
-      #   ${cfg.package}/bin/setec server --hostname "${cfg.hostname}" --state-dir "${cfg.stateDir}" --dev
-      # '';
-
-      script = ''
-        ${cfg.package}/bin/setec server --hostname "${cfg.hostname}" --state-dir /srv/helloNixosTests --dev
-      '';
-
       serviceConfig = {
-        Type = "simple";
-
-        User = "hello";
-        Group = "hello";
-        # DynamicUser = true;
-        # WorkingDirectory = "/run/setec";
-        # StateDirectory = "setec";
-        # RuntimeDirectory = "setec";
-
-        # PrivateTmp = true;
+        Type = "exec";
+        User = "setec";
+        Group = "setec";
+        ExecStart = lib.concatStringsSep " " (
+          [
+            (lib.getExe cfg.package)
+            "server"
+            "--hostname"
+            cfg.hostname
+            "--state-dir"
+            homeDir
+          ]
+          ++ (if cfg.dev then [ "--dev" ] else [ "--kms-key-name=${cfg.kmsKeyName}" ])
+        );
+        EnvironmentFile = [ "${homeDir}/settings.env" ];
+        PrivateTmp = true;
       };
     };
-
   };
 }

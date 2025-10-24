@@ -1,1 +1,6 @@
+.env
 /result
+/tsnet/
+
+audit.log
+database
