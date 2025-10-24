@@ -1,14 +1,23 @@
 {
   description = "A very basic flake";
 
-  inputs = { nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable"; };
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
+  };
 
-  outputs = { self, nixpkgs }:
+  outputs =
+    { self, nixpkgs }:
     let
-      supportedSystems =
-        [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
-      forEachSupportedSystem = f:
-        nixpkgs.lib.genAttrs supportedSystems (system:
+      supportedSystems = [
+        "x86_64-linux"
+        "aarch64-linux"
+        "x86_64-darwin"
+        "aarch64-darwin"
+      ];
+      forEachSupportedSystem =
+        f:
+        nixpkgs.lib.genAttrs supportedSystems (
+          system:
           let
             overlay = final: prev: { setec = self.packages.${system}.setec; };
 
@@ -16,60 +25,76 @@
 
             pkgs = nixpkgs.legacyPackages.${system}.extend overlay;
 
-          in f { pkgs = pkgs; });
+          in
+          f { pkgs = pkgs; }
+        );
 
-    in {
-      nixosModules = { setec = import ./setec-module.nix; };
+    in
+    {
+      nixosModules = {
+        setec = import ./setec-module.nix;
+      };
 
-      packages = forEachSupportedSystem ({ pkgs }: {
-        setec = pkgs.buildGoModule (finalAttrs: {
-          pname = "setec";
-          version = "0.0.0";
+      packages = forEachSupportedSystem (
+        { pkgs }:
+        {
+          setec = pkgs.callPackage ./setec-package.nix { };
+        }
+      );
 
-          src = pkgs.fetchFromGitHub {
-            owner = "tailscale";
-            repo = "setec";
-            rev = "c57e4b5e91a275078b7fd4efd9bae30b93049812";
-            hash = "sha256-xVXLjOHA25Rw+YMkljI0cMOK5aPVOnbcokGHcFUqEwk=";
-          };
+      checks = forEachSupportedSystem (
+        { pkgs }:
+        {
+          setecNixosTest = pkgs.nixosTest {
+            name = "setec-boots";
+            nodes = {
+              server =
+                { config, pkgs, ... }:
+                {
+                  imports = [ self.nixosModules.setec ];
 
-          vendorHash = "sha256-J0hcYnQIDwGx7wKwmZBqY/WmwQwpSF9Dj+9dzzvCDZ8=";
+                  environment.systemPackages = [ pkgs.setec ];
 
-          meta = {
-            description =
-              "A secrets management service that uses Tailscale for access control";
-            homepage =
-              "https://tailscale.com/community/community-projects/setec";
-            license = pkgs.lib.licenses.bsd3;
-            maintainers = with pkgs.lib.maintainers; [ Munksgaard ];
-          };
-        });
-      });
+                  networking.firewall.allowedTCPPorts = [ 443 ];
 
-      checks = forEachSupportedSystem ({ pkgs }: {
-        setecNixosTest = pkgs.nixosTest {
-          name = "setec-boots";
-          nodes.machine = { config, pkgs, ... }: {
-            imports = [ self.nixosModules.setec ];
-            services.setec = {
-              enable = true;
-              hostname = "setec-test";
-              tsAuthkey = "tskey-auth-kWtZirNjtG11CNTRL-c8bhZWr4xoRr9pVeTVafoRciHkejBwm4";
+                  services.setec = {
+                    enable = true;
+                    hostname = "setec-test";
+                    dev = true;
+                  };
+
+                  systemd.tmpfiles.rules = [
+                    "f+ /var/lib/setec/settings.env 0444 root root - TS_AUTHKEY=tskey-auth-kWtZirNjtG11CNTRL-c8bhZWr4xoRr9pVeTVafoRciHkejBwm4"
+                  ];
+
+                  system.stateVersion = "25.11";
+                };
+              client =
+                { pkgs, ... }:
+                {
+                  environment.systemPackages = [ pkgs.setec ];
+
+                  system.stateVersion = "25.11";
+                };
             };
 
-            system.stateVersion = "25.11";
+            testScript = ''
+              start_all()
+
+              server.wait_for_unit("setec.service")
+
+              # server.succeed('echo -n "hello, world" | setec -s https://server put dev/hello-world')
+
+              # def wait_for_systemctl_status_msg(_last_try):
+              #   (_status, output) = machine.systemctl("status setec")
+              #   return "AuthLoop: state is Running; done" in output
+
+              client.succeed('echo -n "hello, world" | setec -s https://server put dev/hello-world')
+
+              # retry(wait_for_systemctl_status_msg)
+            '';
           };
-
-          testScript = ''
-            machine.wait_for_unit("setec.service")
-
-            def wait_for_systemctl_status_msg(_last_try):
-              (_status, output) = machine.systemctl("status setec")
-              return "AuthLoop: state is Running; done" in output
-
-            retry(wait_for_systemctl_status_msg)
-          '';
-        };
-      });
+        }
+      );
     };
 }
