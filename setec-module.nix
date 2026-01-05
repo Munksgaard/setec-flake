@@ -93,8 +93,14 @@ in {
         TSNET_FORCE_LOGIN = "1";
       };
 
-      script = ''
-        ${cfg.package}/bin/setec server --hostname "${cfg.hostname}" --state-dir "${cfg.stateDir}" ${lib.optionalString cfg.dev "--dev"}
+      script = let
+        kmsFlag = lib.optionalString (cfg.kmsKeyName != null) "--kms-key ${cfg.kmsKeyName}";
+        backupBucketFlag = lib.optionalString (cfg.backupBucket != null) "--backup-bucket ${cfg.backupBucket}";
+        backupRegionFlag = lib.optionalString (cfg.backupBucketRegion != null) "--backup-bucket-region ${cfg.backupBucketRegion}";
+        backupRoleFlag = lib.optionalString (cfg.backupRole != null) "--backup-role ${cfg.backupRole}";
+        devFlag = lib.optionalString cfg.dev "--dev";
+      in ''
+        ${cfg.package}/bin/setec server --hostname "${cfg.hostname}" --state-dir "${cfg.stateDir}" ${kmsFlag} ${backupBucketFlag} ${backupRegionFlag} ${backupRoleFlag} ${devFlag}
       '';
 
       serviceConfig = {
