@@ -9,28 +9,34 @@ in {
 
     tsAuthkey = mkOption {
       type = types.str;
+      description = "Tailscale authentication key for connecting to the tailnet.";
       example = literalExpression
         "tskey-auth-kf4k3k3y4testCNTRL-ZmFrZSBrZXkgZm9yIHRlc3Q";
     };
 
     hostname = mkOption {
       type = types.str;
+      description = "Hostname for the setec server on the Tailscale network.";
       example = literalExpression "setec.example.ts.net";
     };
 
     stateDir = mkOption {
       type = types.path;
+      description = "Directory where setec stores its state and database.";
       example = literalExpression "/run/setec";
       default = "/run/setec/tmp";
     };
 
     dev = mkOption {
       type = types.bool;
+      description = "Whether to run setec in development mode (uses in-memory storage).";
       default = false;
     };
 
     kmsKeyName = mkOption {
       type = types.nullOr types.str;
+      description = "AWS KMS key ARN for encrypting secrets.";
+      default = null;
       example = literalExpression
         "arn:aws:kms:us-east-1:123456789012:key/b8074b63-13c0-4345-a9d8-e236267d2af1";
     };
