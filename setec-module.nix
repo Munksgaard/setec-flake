@@ -89,12 +89,8 @@ in {
         TSNET_FORCE_LOGIN = "1";
       };
 
-      # script = ''
-      #   ${cfg.package}/bin/setec server --hostname "${cfg.hostname}" --state-dir "${cfg.stateDir}" --dev
-      # '';
-
       script = ''
-        ${cfg.package}/bin/setec server --hostname "${cfg.hostname}" --state-dir /srv/helloNixosTests --dev
+        ${cfg.package}/bin/setec server --hostname "${cfg.hostname}" --state-dir "${cfg.stateDir}" ${lib.optionalString cfg.dev "--dev"}
       '';
 
       serviceConfig = {
