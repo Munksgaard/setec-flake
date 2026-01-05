@@ -136,6 +136,28 @@ in {
         Type = "simple";
         User = "setec";
         Group = "setec";
+
+        # Hardening
+        PrivateTmp = true;
+        ProtectSystem = "strict";
+        ProtectHome = true;
+        NoNewPrivileges = true;
+        PrivateDevices = true;
+        ProtectKernelTunables = true;
+        ProtectKernelModules = true;
+        ProtectControlGroups = true;
+        RestrictAddressFamilies = [ "AF_UNIX" "AF_INET" "AF_INET6" "AF_NETLINK" ];
+        RestrictNamespaces = true;
+        LockPersonality = true;
+        RestrictRealtime = true;
+        RestrictSUIDSGID = true;
+        MemoryDenyWriteExecute = true;
+        SystemCallArchitectures = "native";
+
+        # Allow read/write to state directory
+        ReadWritePaths = [ cfg.stateDir ];
+        StateDirectory = lib.mkIf (lib.hasPrefix "/var/lib/" cfg.stateDir)
+          (lib.removePrefix "/var/lib/" cfg.stateDir);
       };
     };
 
