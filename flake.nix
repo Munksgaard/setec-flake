@@ -18,9 +18,9 @@
       nixosModules = { setec = import ./setec-module.nix; };
 
       packages = forEachSupportedSystem ({ pkgs }: {
-        setec = pkgs.buildGoModule (finalAttrs: {
+        setec = pkgs.buildGoModule (finalAttrs: rec {
           pname = "setec";
-          version = "0.0.0";
+          version = "unstable-2024-09-27";
 
           src = pkgs.fetchFromGitHub {
             owner = "tailscale";
