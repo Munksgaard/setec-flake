@@ -55,6 +55,7 @@
               enable = true;
               hostname = "setec-test";
               tsAuthkey = "tskey-auth-kWtZirNjtG11CNTRL-c8bhZWr4xoRr9pVeTVafoRciHkejBwm4";
+              dev = true;  # Use dev mode to bypass KMS requirement in tests
             };
 
             system.stateVersion = "25.11";

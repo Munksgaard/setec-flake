@@ -119,7 +119,7 @@ in {
         '' else ''
           export TS_AUTHKEY="${cfg.tsAuthkey}"
         '';
-        kmsFlag = lib.optionalString (cfg.kmsKeyName != null) "--kms-key ${cfg.kmsKeyName}";
+        kmsFlag = lib.optionalString (cfg.kmsKeyName != null) "--kms-key-name ${cfg.kmsKeyName}";
         backupBucketFlag = lib.optionalString (cfg.backupBucket != null) "--backup-bucket ${cfg.backupBucket}";
         backupRegionFlag = lib.optionalString (cfg.backupBucketRegion != null) "--backup-bucket-region ${cfg.backupBucketRegion}";
         backupRoleFlag = lib.optionalString (cfg.backupRole != null) "--backup-role ${cfg.backupRole}";
