@@ -57,15 +57,13 @@ in {
 
   config = mkIf cfg.enable {
 
-    users.users.hello = {
-      createHome = true;
-      description = "helloNixosTests user";
+    users.users.setec = {
+      description = "Setec secrets management service user";
       isSystemUser = true;
-      group = "hello";
-      home = "/srv/helloNixosTests";
+      group = "setec";
     };
 
-    users.groups.hello.gid = 1000;
+    users.groups.setec = { };
 
     systemd.services.setec = {
       description = "Setec server";
@@ -95,15 +93,8 @@ in {
 
       serviceConfig = {
         Type = "simple";
-
-        User = "hello";
-        Group = "hello";
-        # DynamicUser = true;
-        # WorkingDirectory = "/run/setec";
-        # StateDirectory = "setec";
-        # RuntimeDirectory = "setec";
-
-        # PrivateTmp = true;
+        User = "setec";
+        Group = "setec";
       };
     };
 
