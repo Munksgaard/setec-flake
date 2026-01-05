@@ -11,11 +11,7 @@
         nixpkgs.lib.genAttrs supportedSystems (system:
           let
             overlay = final: prev: { setec = self.packages.${system}.setec; };
-
-            pkgs_old = import nixpkgs { inherit system; };
-
             pkgs = nixpkgs.legacyPackages.${system}.extend overlay;
-
           in f { pkgs = pkgs; });
 
     in {
