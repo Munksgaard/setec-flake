@@ -39,8 +39,8 @@ in {
     stateDir = mkOption {
       type = types.path;
       description = "Directory where setec stores its state and database.";
-      example = literalExpression "/run/setec";
-      default = "/run/setec/tmp";
+      example = literalExpression "/var/lib/setec";
+      default = "/var/lib/setec";
     };
 
     dev = mkOption {
@@ -151,10 +151,12 @@ in {
         MemoryDenyWriteExecute = true;
         SystemCallArchitectures = "native";
 
-        # Allow read/write to state directory
-        ReadWritePaths = [ cfg.stateDir ];
+        # State directory management
+        # If using /var/lib, let systemd manage it; otherwise grant write access
         StateDirectory = lib.mkIf (lib.hasPrefix "/var/lib/" cfg.stateDir)
           (lib.removePrefix "/var/lib/" cfg.stateDir);
+        ReadWritePaths = lib.mkIf (!lib.hasPrefix "/var/lib/" cfg.stateDir)
+          [ cfg.stateDir ];
       };
     };
 
