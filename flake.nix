@@ -1,5 +1,5 @@
 {
-  description = "A very basic flake";
+  description = "Nix flake for Setec - Tailscale's secrets management service";
 
   inputs = { nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable"; };
 
@@ -15,9 +15,13 @@
           in f { pkgs = pkgs; });
 
     in {
-      nixosModules = { setec = import ./setec-module.nix; };
+      nixosModules = {
+        default = import ./setec-module.nix;
+        setec = import ./setec-module.nix;
+      };
 
       packages = forEachSupportedSystem ({ pkgs }: {
+        default = pkgs.setec;
         setec = pkgs.buildGoModule (finalAttrs: rec {
           pname = "setec";
           version = "unstable-2024-09-27";
