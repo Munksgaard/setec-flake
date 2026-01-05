@@ -8,10 +8,26 @@ in {
     package = mkPackageOption pkgs "setec" { };
 
     tsAuthkey = mkOption {
-      type = types.str;
-      description = "Tailscale authentication key for connecting to the tailnet.";
+      type = types.nullOr types.str;
+      default = null;
+      description = ''
+        Tailscale authentication key for connecting to the tailnet.
+        WARNING: This will be stored in the Nix store and visible in process listings.
+        Consider using tsAuthkeyFile instead for production.
+      '';
       example = literalExpression
         "tskey-auth-kf4k3k3y4testCNTRL-ZmFrZSBrZXkgZm9yIHRlc3Q";
+    };
+
+    tsAuthkeyFile = mkOption {
+      type = types.nullOr types.path;
+      default = null;
+      description = ''
+        Path to a file containing the Tailscale authentication key.
+        This is more secure than tsAuthkey as it keeps the key out of the Nix store.
+        The file should be readable by the setec user.
+      '';
+      example = literalExpression "/run/secrets/setec-tsauthkey";
     };
 
     hostname = mkOption {
@@ -62,6 +78,12 @@ in {
   };
 
   config = mkIf cfg.enable {
+    assertions = [
+      {
+        assertion = (cfg.tsAuthkey != null) != (cfg.tsAuthkeyFile != null);
+        message = "Exactly one of services.setec.tsAuthkey or services.setec.tsAuthkeyFile must be set.";
+      }
+    ];
 
     users.users.setec = {
       description = "Setec secrets management service user";
@@ -89,11 +111,18 @@ in {
       requires = [ "network-online.target" ];
 
       environment = {
-        TS_AUTHKEY = cfg.tsAuthkey;
         TSNET_FORCE_LOGIN = "1";
       };
 
       script = let
+        authkeySetup = if cfg.tsAuthkeyFile != null then ''
+          export TS_AUTHKEY="$(cat ${cfg.tsAuthkeyFile})"
+        '' else ''
+          export TS_AUTHKEY="${cfg.tsAuthkey}"
+        '';
+      in authkeySetup + ''
+
+      '' + let
         kmsFlag = lib.optionalString (cfg.kmsKeyName != null) "--kms-key ${cfg.kmsKeyName}";
         backupBucketFlag = lib.optionalString (cfg.backupBucket != null) "--backup-bucket ${cfg.backupBucket}";
         backupRegionFlag = lib.optionalString (cfg.backupBucketRegion != null) "--backup-bucket-region ${cfg.backupBucketRegion}";
