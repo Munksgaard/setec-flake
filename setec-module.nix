@@ -97,7 +97,6 @@ in {
       description = "Setec server";
       wantedBy = [ "multi-user.target" ];
       after = [ "network.target" ];
-      # after = lib.mkIf (config.networking.networkmanager.enable) [ "NetworkManager-wait-online.service" ];
 
       path = [
         (builtins.dirOf
