@@ -45,7 +45,8 @@ in {
 
     dev = mkOption {
       type = types.bool;
-      description = "Whether to run setec in development mode (uses in-memory storage).";
+      description =
+        "Whether to run setec in development mode (uses in-memory storage).";
       default = false;
     };
 
@@ -78,12 +79,11 @@ in {
   };
 
   config = mkIf cfg.enable {
-    assertions = [
-      {
-        assertion = (cfg.tsAuthkey != null) != (cfg.tsAuthkeyFile != null);
-        message = "Exactly one of services.setec.tsAuthkey or services.setec.tsAuthkeyFile must be set.";
-      }
-    ];
+    assertions = [{
+      assertion = (cfg.tsAuthkey != null) != (cfg.tsAuthkeyFile != null);
+      message =
+        "Exactly one of services.setec.tsAuthkey or services.setec.tsAuthkeyFile must be set.";
+    }];
 
     users.users.setec = {
       description = "Setec secrets management service user";
@@ -109,9 +109,7 @@ in {
 
       requires = [ "network-online.target" ];
 
-      environment = {
-        TSNET_FORCE_LOGIN = "1";
-      };
+      environment = { TSNET_FORCE_LOGIN = "1"; };
 
       script = let
         authkeySetup = if cfg.tsAuthkeyFile != null then ''
@@ -119,10 +117,14 @@ in {
         '' else ''
           export TS_AUTHKEY="${cfg.tsAuthkey}"
         '';
-        kmsFlag = lib.optionalString (cfg.kmsKeyName != null) "--kms-key-name ${cfg.kmsKeyName}";
-        backupBucketFlag = lib.optionalString (cfg.backupBucket != null) "--backup-bucket ${cfg.backupBucket}";
-        backupRegionFlag = lib.optionalString (cfg.backupBucketRegion != null) "--backup-bucket-region ${cfg.backupBucketRegion}";
-        backupRoleFlag = lib.optionalString (cfg.backupRole != null) "--backup-role ${cfg.backupRole}";
+        kmsFlag = lib.optionalString (cfg.kmsKeyName != null)
+          "--kms-key-name ${cfg.kmsKeyName}";
+        backupBucketFlag = lib.optionalString (cfg.backupBucket != null)
+          "--backup-bucket ${cfg.backupBucket}";
+        backupRegionFlag = lib.optionalString (cfg.backupBucketRegion != null)
+          "--backup-bucket-region ${cfg.backupBucketRegion}";
+        backupRoleFlag = lib.optionalString (cfg.backupRole != null)
+          "--backup-role ${cfg.backupRole}";
         devFlag = lib.optionalString cfg.dev "--dev";
       in ''
         ${authkeySetup}
@@ -143,7 +145,8 @@ in {
         ProtectKernelTunables = true;
         ProtectKernelModules = true;
         ProtectControlGroups = true;
-        RestrictAddressFamilies = [ "AF_UNIX" "AF_INET" "AF_INET6" "AF_NETLINK" ];
+        RestrictAddressFamilies =
+          [ "AF_UNIX" "AF_INET" "AF_INET6" "AF_NETLINK" ];
         RestrictNamespaces = true;
         LockPersonality = true;
         RestrictRealtime = true;
@@ -155,8 +158,8 @@ in {
         # If using /var/lib, let systemd manage it; otherwise grant write access
         StateDirectory = lib.mkIf (lib.hasPrefix "/var/lib/" cfg.stateDir)
           (lib.removePrefix "/var/lib/" cfg.stateDir);
-        ReadWritePaths = lib.mkIf (!lib.hasPrefix "/var/lib/" cfg.stateDir)
-          [ cfg.stateDir ];
+        ReadWritePaths =
+          lib.mkIf (!lib.hasPrefix "/var/lib/" cfg.stateDir) [ cfg.stateDir ];
       };
     };
 
