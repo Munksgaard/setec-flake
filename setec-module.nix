@@ -5,7 +5,7 @@ in {
   options.services.setec = {
     enable = mkEnableOption "a setec server";
 
-    package = mkPackageOption pkgs "setec" { };
+    package = mkPackageOption pkgs "setec" { default = [ "setec" ]; };
 
     tsAuthkey = mkOption {
       type = types.nullOr types.str;
