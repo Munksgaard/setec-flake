@@ -52,10 +52,25 @@ in {
 
     kmsKeyName = mkOption {
       type = types.nullOr types.str;
-      description = "AWS KMS key ARN for encrypting secrets.";
+      description = ''
+        AWS KMS key ARN for encrypting secrets.
+        WARNING: This will be stored in the Nix store and visible in process listings.
+        Consider using kmsKeyNameFile instead for production.
+      '';
       default = null;
       example = literalExpression
         "arn:aws:kms:us-east-1:123456789012:key/b8074b63-13c0-4345-a9d8-e236267d2af1";
+    };
+
+    kmsKeyNameFile = mkOption {
+      type = types.nullOr types.path;
+      default = null;
+      description = ''
+        Path to a file containing the AWS KMS key ARN for encrypting secrets.
+        This is more secure than kmsKeyName as it keeps the key ARN out of the Nix store.
+        The file should be readable by the setec user.
+      '';
+      example = literalExpression "/run/secrets/setec-kms-key";
     };
 
     backupBucket = mkOption {
@@ -79,11 +94,18 @@ in {
   };
 
   config = mkIf cfg.enable {
-    assertions = [{
-      assertion = (cfg.tsAuthkey != null) != (cfg.tsAuthkeyFile != null);
-      message =
-        "Exactly one of services.setec.tsAuthkey or services.setec.tsAuthkeyFile must be set.";
-    }];
+    assertions = [
+      {
+        assertion = (cfg.tsAuthkey != null) != (cfg.tsAuthkeyFile != null);
+        message =
+          "Exactly one of services.setec.tsAuthkey or services.setec.tsAuthkeyFile must be set.";
+      }
+      {
+        assertion = (cfg.kmsKeyName != null) -> (cfg.kmsKeyNameFile == null);
+        message =
+          "Only one of services.setec.kmsKeyName or services.setec.kmsKeyNameFile can be set.";
+      }
+    ];
 
     users.users.setec = {
       description = "Setec secrets management service user";
@@ -117,8 +139,11 @@ in {
         '' else ''
           export TS_AUTHKEY="${cfg.tsAuthkey}"
         '';
-        kmsFlag = lib.optionalString (cfg.kmsKeyName != null)
-          "--kms-key-name ${cfg.kmsKeyName}";
+        kmsKeyArg = if cfg.kmsKeyNameFile != null then
+          "--kms-key-name \"$(cat ${cfg.kmsKeyNameFile})\""
+        else if cfg.kmsKeyName != null then
+          "--kms-key-name ${cfg.kmsKeyName}"
+        else "";
         backupBucketFlag = lib.optionalString (cfg.backupBucket != null)
           "--backup-bucket ${cfg.backupBucket}";
         backupRegionFlag = lib.optionalString (cfg.backupBucketRegion != null)
@@ -128,7 +153,7 @@ in {
         devFlag = lib.optionalString cfg.dev "--dev";
       in ''
         ${authkeySetup}
-        ${cfg.package}/bin/setec server --hostname "${cfg.hostname}" --state-dir "${cfg.stateDir}" ${kmsFlag} ${backupBucketFlag} ${backupRegionFlag} ${backupRoleFlag} ${devFlag}
+        ${cfg.package}/bin/setec server --hostname "${cfg.hostname}" --state-dir "${cfg.stateDir}" ${kmsKeyArg} ${backupBucketFlag} ${backupRegionFlag} ${backupRoleFlag} ${devFlag}
       '';
 
       serviceConfig = {
