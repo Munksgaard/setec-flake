@@ -1,76 +1,105 @@
 {
   description = "Nix flake for Setec - Tailscale's secrets management service";
 
-  inputs = { nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable"; };
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-  outputs = { self, nixpkgs }:
+  outputs =
+    {
+      self,
+      nixpkgs,
+    }:
     let
-      supportedSystems =
-        [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
-      forEachSupportedSystem = f:
-        nixpkgs.lib.genAttrs supportedSystems (system:
-          let
-            overlay = final: prev: { setec = self.packages.${system}.setec; };
-            pkgs = nixpkgs.legacyPackages.${system}.extend overlay;
-          in f { pkgs = pkgs; });
+      supportedSystems = [
+        "x86_64-linux"
+        "aarch64-linux"
+        "aarch64-darwin"
+      ];
+      forEachSupportedSystem =
+        function: nixpkgs.lib.genAttrs supportedSystems (system: function nixpkgs.legacyPackages.${system});
 
-    in {
-      nixosModules = {
-        default = import ./setec-module.nix;
-        setec = import ./setec-module.nix;
+      setecModule =
+        {
+          lib,
+          pkgs,
+          ...
+        }:
+        {
+          imports = [ ./setec-module.nix ];
+          services.setec.package = lib.mkDefault self.packages.${pkgs.stdenv.hostPlatform.system}.setec;
+        };
+    in
+    {
+      overlays.default = final: _previous: {
+        setec = self.packages.${final.stdenv.hostPlatform.system}.setec;
       };
 
-      packages = forEachSupportedSystem ({ pkgs }: {
-        default = pkgs.setec;
-        setec = pkgs.buildGoModule (finalAttrs: rec {
+      nixosModules = {
+        default = setecModule;
+        setec = setecModule;
+      };
+
+      packages = forEachSupportedSystem (pkgs: rec {
+        default = setec;
+        setec = pkgs.buildGoModule {
           pname = "setec";
-          version = "unstable-2024-09-27";
+          version = "unstable-2026-08-08";
 
           src = pkgs.fetchFromGitHub {
             owner = "tailscale";
             repo = "setec";
-            rev = "c57e4b5e91a275078b7fd4efd9bae30b93049812";
-            hash = "sha256-xVXLjOHA25Rw+YMkljI0cMOK5aPVOnbcokGHcFUqEwk=";
+            rev = "58bd74dcaa1a4e50589f5a3d0961cd30769246bd";
+            hash = "sha256-8V8NwtZE+Ud5jW+4YO6hMruElaBQmvjG/tp+UTuVQx8=";
           };
 
-          vendorHash = "sha256-J0hcYnQIDwGx7wKwmZBqY/WmwQwpSF9Dj+9dzzvCDZ8=";
+          # The TPM simulator includes non-Go sources that `go mod vendor` omits.
+          proxyVendor = true;
+          vendorHash = "sha256-jGBxeIcFdplvgZh5GWx9Z1ciBSZQDlR4I/ryWBOnIBA=";
+
+          # Upstream TPM simulator tests use cgo and link against OpenSSL.
+          buildInputs = [ pkgs.openssl ];
+          subPackages = [ "cmd/setec" ];
 
           meta = {
-            description =
-              "A secrets management service that uses Tailscale for access control";
-            homepage =
-              "https://tailscale.com/community/community-projects/setec";
+            description = "A secrets management service that uses Tailscale for access control";
+            homepage = "https://github.com/tailscale/setec";
             license = pkgs.lib.licenses.bsd3;
             maintainers = with pkgs.lib.maintainers; [ Munksgaard ];
+            mainProgram = "setec";
           };
-        });
-      });
-
-      checks = forEachSupportedSystem ({ pkgs }: {
-        setecNixosTest = pkgs.nixosTest {
-          name = "setec-boots";
-          nodes.machine = { config, pkgs, ... }: {
-            imports = [ self.nixosModules.setec ];
-            services.setec = {
-              enable = true;
-              hostname = "setec-test";
-              tsAuthkey = "tskey-auth-kWtZirNjtG11CNTRL-c8bhZWr4xoRr9pVeTVafoRciHkejBwm4";
-              dev = true;  # Use dev mode to bypass KMS requirement in tests
-            };
-
-            system.stateVersion = "25.11";
-          };
-
-          testScript = ''
-            machine.wait_for_unit("setec.service")
-
-            def wait_for_systemctl_status_msg(_last_try):
-              (_status, output) = machine.systemctl("status setec")
-              return "AuthLoop: state is Running; done" in output
-
-            retry(wait_for_systemctl_status_msg)
-          '';
         };
       });
+
+      formatter = forEachSupportedSystem (pkgs: pkgs.nixfmt-tree);
+
+      checks = forEachSupportedSystem (
+        pkgs:
+        nixpkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+          setecNixosTest = pkgs.testers.nixosTest {
+            name = "setec-boots";
+            nodes.machine = {
+              imports = [ self.nixosModules.setec ];
+              services.setec = {
+                enable = true;
+                hostname = "setec-test";
+                tsAuthkeyFile = "/run/setec/missing-auth-key";
+                dev = true;
+              };
+
+              system.stateVersion = "25.11";
+            };
+
+            testScript = ''
+              machine.wait_for_unit("setec.service")
+              machine.succeed("systemctl is-active setec.service")
+              machine.wait_until_succeeds(
+                  "journalctl -u setec.service | grep 'auth key file is missing, unreadable, or empty'"
+              )
+              machine.wait_until_succeeds(
+                  "journalctl -u setec.service | grep 'LocalBackend state is NeedsLogin'"
+              )
+            '';
+          };
+        }
+      );
     };
 }
