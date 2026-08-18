@@ -1,109 +1,121 @@
-{ config, lib, pkgs, ... }:
-with lib;
-let cfg = config.services.setec;
-in {
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
+
+let
+  cfg = config.services.setec;
+  inherit (lib)
+    escapeShellArg
+    getExe
+    hasPrefix
+    mkEnableOption
+    mkIf
+    mkOption
+    optional
+    optionalString
+    removePrefix
+    types
+    ;
+in
+{
   options.services.setec = {
     enable = mkEnableOption "a setec server";
 
-    package = mkPackageOption pkgs "setec" { default = [ "setec" ]; };
+    package = mkOption {
+      type = types.package;
+      description = "The setec package to run.";
+    };
 
     tsAuthkey = mkOption {
       type = types.nullOr types.str;
       default = null;
       description = ''
-        Tailscale authentication key for connecting to the tailnet.
-        WARNING: This will be stored in the Nix store and visible in process listings.
-        Consider using tsAuthkeyFile instead for production.
+        Tailscale authentication key used for initial tailnet enrollment.
+        WARNING: This value is stored in the Nix store. Use tsAuthkeyFile for production.
+        The key is optional after tsnet state has been enrolled and persisted.
       '';
-      example = literalExpression
-        "tskey-auth-kf4k3k3y4testCNTRL-ZmFrZSBrZXkgZm9yIHRlc3Q";
+      example = "tskey-auth-kf4k3k3y4testCNTRL-ZmFrZSBrZXkgZm9yIHRlc3Q";
     };
 
     tsAuthkeyFile = mkOption {
-      type = types.nullOr types.path;
+      type = types.nullOr types.externalPath;
       default = null;
       description = ''
-        Path to a file containing the Tailscale authentication key.
-        This is more secure than tsAuthkey as it keeps the key out of the Nix store.
-        The file should be readable by the setec user.
+        Runtime path to a file containing the Tailscale authentication key used for
+        initial enrollment. When the file is absent, setec starts without TS_AUTHKEY
+        and reuses its persisted tsnet state.
       '';
-      example = literalExpression "/run/secrets/setec-tsauthkey";
+      example = "/run/secrets/setec-tsauthkey";
     };
 
     hostname = mkOption {
       type = types.str;
-      description = "Hostname for the setec server on the Tailscale network.";
-      example = literalExpression "setec.example.ts.net";
+      description = "Short hostname for the setec server's tsnet node.";
+      example = "secrets";
     };
 
     stateDir = mkOption {
-      type = types.path;
+      type = types.externalPath;
       description = "Directory where setec stores its state and database.";
-      example = literalExpression "/var/lib/setec";
+      example = "/var/lib/setec";
       default = "/var/lib/setec";
     };
 
     dev = mkOption {
       type = types.bool;
-      description =
-        "Whether to run setec in development mode (uses in-memory storage).";
+      description = "Whether to use setec's insecure static development encryption key.";
       default = false;
     };
 
     kmsKeyName = mkOption {
       type = types.nullOr types.str;
-      description = ''
-        AWS KMS key ARN for encrypting secrets.
-        WARNING: This will be stored in the Nix store and visible in process listings.
-        Consider using kmsKeyNameFile instead for production.
-      '';
+      description = "AWS KMS key ARN used to encrypt the setec database.";
       default = null;
-      example = literalExpression
-        "arn:aws:kms:us-east-1:123456789012:key/b8074b63-13c0-4345-a9d8-e236267d2af1";
+      example = "arn:aws:kms:us-east-1:123456789012:key/b8074b63-13c0-4345-a9d8-e236267d2af1";
     };
 
     kmsKeyNameFile = mkOption {
-      type = types.nullOr types.path;
+      type = types.nullOr types.externalPath;
       default = null;
-      description = ''
-        Path to a file containing the AWS KMS key ARN for encrypting secrets.
-        This is more secure than kmsKeyName as it keeps the key ARN out of the Nix store.
-        The file should be readable by the setec user.
-      '';
-      example = literalExpression "/run/secrets/setec-kms-key";
+      description = "Runtime path to a file containing the AWS KMS key ARN.";
+      example = "/run/config/setec-kms-key";
     };
 
     backupBucket = mkOption {
       type = types.nullOr types.str;
       default = null;
-      description = "Name of AWS S3 bucket to use for database backups.";
+      description = "Name of the AWS S3 bucket used for database backups.";
     };
 
     backupBucketRegion = mkOption {
       type = types.nullOr types.str;
       default = null;
-      description = "AWS region of the backup S3 bucket.";
+      description = "AWS region of the database backup bucket.";
     };
 
     backupRole = mkOption {
       type = types.nullOr types.str;
       default = null;
-      description = "Name of AWS IAM role to assume to write backups.";
+      description = "AWS IAM role ARN to assume when writing database backups.";
     };
-
   };
 
   config = mkIf cfg.enable {
     assertions = [
       {
-        assertion = (cfg.tsAuthkey != null) != (cfg.tsAuthkeyFile != null);
-        message =
-          "Exactly one of services.setec.tsAuthkey or services.setec.tsAuthkeyFile must be set.";
+        assertion = !(cfg.tsAuthkey != null && cfg.tsAuthkeyFile != null);
+        message = "Only one of services.setec.tsAuthkey or services.setec.tsAuthkeyFile can be set.";
       }
       {
-        assertion = (cfg.kmsKeyName != null) -> (cfg.kmsKeyNameFile == null);
-        message =
-          "Only one of services.setec.kmsKeyName or services.setec.kmsKeyNameFile can be set.";
+        assertion = !(cfg.kmsKeyName != null && cfg.kmsKeyNameFile != null);
+        message = "Only one of services.setec.kmsKeyName or services.setec.kmsKeyNameFile can be set.";
+      }
+      {
+        assertion = cfg.dev || cfg.kmsKeyName != null || cfg.kmsKeyNameFile != null;
+        message = "services.setec requires kmsKeyName or kmsKeyNameFile unless dev mode is enabled.";
       }
     ];
 
@@ -118,48 +130,76 @@ in {
     systemd.services.setec = {
       description = "Setec server";
       wantedBy = [ "multi-user.target" ];
-      after = [ "network.target" ];
+      after = [ "network-online.target" ];
+      requires = [ "network-online.target" ];
+      unitConfig.RequiresMountsFor = cfg.stateDir;
 
       path = [
-        (builtins.dirOf
-          config.security.wrapperDir) # for `su` to use taildrive with correct access rights
-        pkgs.procps # for collecting running services (opt-in feature)
-        pkgs.getent # for `getent` to look up user shells
-        pkgs.kmod # required to pass tailscale's v6nat check
-      ] ++ lib.optional config.networking.resolvconf.enable
-        config.networking.resolvconf.package;
+        # Dependencies used by tailscale's hostinfo and networking checks.
+        (builtins.dirOf config.security.wrapperDir)
+        pkgs.procps
+        pkgs.getent
+        pkgs.kmod
+      ]
+      ++ optional config.networking.resolvconf.enable config.networking.resolvconf.package;
 
-      requires = [ "network-online.target" ];
+      script =
+        let
+          authkeySetup =
+            if cfg.tsAuthkeyFile != null then
+              ''
+                if [[ -r ${escapeShellArg cfg.tsAuthkeyFile} && -s ${escapeShellArg cfg.tsAuthkeyFile} ]]; then
+                  export TS_AUTHKEY="$(< ${escapeShellArg cfg.tsAuthkeyFile})"
+                else
+                  echo ${escapeShellArg "setec: auth key file is missing, unreadable, or empty; relying on persisted tsnet state: ${cfg.tsAuthkeyFile}"} >&2
+                fi
+              ''
+            else
+              optionalString (cfg.tsAuthkey != null) ''
+                export TS_AUTHKEY=${escapeShellArg cfg.tsAuthkey}
+              '';
+          kmsKeySetup =
+            if cfg.kmsKeyNameFile != null then
+              ''
+                if [[ ! -r ${escapeShellArg cfg.kmsKeyNameFile} || ! -s ${escapeShellArg cfg.kmsKeyNameFile} ]]; then
+                  echo ${escapeShellArg "setec: KMS key file is missing, unreadable, or empty: ${cfg.kmsKeyNameFile}"} >&2
+                  exit 1
+                fi
+                args+=(--kms-key-name "$(< ${escapeShellArg cfg.kmsKeyNameFile})")
+              ''
+            else
+              optionalString (cfg.kmsKeyName != null) ''
+                args+=(--kms-key-name ${escapeShellArg cfg.kmsKeyName})
+              '';
+        in
+        ''
+          ${authkeySetup}
 
-      environment = { TSNET_FORCE_LOGIN = "1"; };
+          args=(
+            server
+            --hostname ${escapeShellArg cfg.hostname}
+            --state-dir ${escapeShellArg cfg.stateDir}
+          )
+          ${kmsKeySetup}
+          ${optionalString (
+            cfg.backupBucket != null
+          ) "args+=(--backup-bucket ${escapeShellArg cfg.backupBucket})"}
+          ${optionalString (
+            cfg.backupBucketRegion != null
+          ) "args+=(--backup-bucket-region ${escapeShellArg cfg.backupBucketRegion})"}
+          ${optionalString (cfg.backupRole != null) "args+=(--backup-role ${escapeShellArg cfg.backupRole})"}
+          ${optionalString cfg.dev "args+=(--dev)"}
 
-      script = let
-        authkeySetup = if cfg.tsAuthkeyFile != null then ''
-          export TS_AUTHKEY="$(cat ${cfg.tsAuthkeyFile})"
-        '' else ''
-          export TS_AUTHKEY="${cfg.tsAuthkey}"
+          exec ${getExe cfg.package} "''${args[@]}"
         '';
-        kmsKeyArg = if cfg.kmsKeyNameFile != null then
-          "--kms-key-name \"$(cat ${cfg.kmsKeyNameFile})\""
-        else if cfg.kmsKeyName != null then
-          "--kms-key-name ${cfg.kmsKeyName}"
-        else "";
-        backupBucketFlag = lib.optionalString (cfg.backupBucket != null)
-          "--backup-bucket ${cfg.backupBucket}";
-        backupRegionFlag = lib.optionalString (cfg.backupBucketRegion != null)
-          "--backup-bucket-region ${cfg.backupBucketRegion}";
-        backupRoleFlag = lib.optionalString (cfg.backupRole != null)
-          "--backup-role ${cfg.backupRole}";
-        devFlag = lib.optionalString cfg.dev "--dev";
-      in ''
-        ${authkeySetup}
-        ${cfg.package}/bin/setec server --hostname "${cfg.hostname}" --state-dir "${cfg.stateDir}" ${kmsKeyArg} ${backupBucketFlag} ${backupRegionFlag} ${backupRoleFlag} ${devFlag}
-      '';
 
       serviceConfig = {
         Type = "simple";
         User = "setec";
         Group = "setec";
+        Restart = "on-failure";
+        RestartSec = "5s";
+        UMask = "0077";
 
         # Hardening
         PrivateTmp = true;
@@ -170,8 +210,12 @@ in {
         ProtectKernelTunables = true;
         ProtectKernelModules = true;
         ProtectControlGroups = true;
-        RestrictAddressFamilies =
-          [ "AF_UNIX" "AF_INET" "AF_INET6" "AF_NETLINK" ];
+        RestrictAddressFamilies = [
+          "AF_UNIX"
+          "AF_INET"
+          "AF_INET6"
+          "AF_NETLINK"
+        ];
         RestrictNamespaces = true;
         LockPersonality = true;
         RestrictRealtime = true;
@@ -179,14 +223,10 @@ in {
         MemoryDenyWriteExecute = true;
         SystemCallArchitectures = "native";
 
-        # State directory management
-        # If using /var/lib, let systemd manage it; otherwise grant write access
-        StateDirectory = lib.mkIf (lib.hasPrefix "/var/lib/" cfg.stateDir)
-          (lib.removePrefix "/var/lib/" cfg.stateDir);
-        ReadWritePaths =
-          lib.mkIf (!lib.hasPrefix "/var/lib/" cfg.stateDir) [ cfg.stateDir ];
+        # If using /var/lib, let systemd manage it; otherwise grant write access.
+        StateDirectory = mkIf (hasPrefix "/var/lib/" cfg.stateDir) (removePrefix "/var/lib/" cfg.stateDir);
+        ReadWritePaths = mkIf (!hasPrefix "/var/lib/" cfg.stateDir) [ cfg.stateDir ];
       };
     };
-
   };
 }
